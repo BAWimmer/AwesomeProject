@@ -6,6 +6,53 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 /**
+ * SECURITY ENHANCEMENT: React Native compatible Base64 encoding/decoding
+ */
+class Base64Utils {
+  private static chars =
+    'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
+
+  static encode(input: string): string {
+    let str = input;
+    let output = '';
+    for (
+      let block = 0, charCode, i = 0, map = this.chars;
+      str.charAt(i | 0) || ((map = '='), i % 1);
+      output += map.charAt(63 & (block >> (8 - (i % 1) * 8)))
+    ) {
+      charCode = str.charCodeAt((i += 3 / 4));
+      if (charCode > 0xff) {
+        throw new Error(
+          "'btoa' failed: The string to be encoded contains characters outside of the Latin1 range.",
+        );
+      }
+      block = (block << 8) | charCode;
+    }
+    return output;
+  }
+
+  static decode(input: string): string {
+    let str = input.replace(/=+$/, '');
+    let output = '';
+    if (str.length % 4 == 1) {
+      throw new Error(
+        "'atob' failed: The string to be decoded is not correctly encoded.",
+      );
+    }
+    for (
+      let bc = 0, bs = 0, buffer, i = 0;
+      (buffer = str.charAt(i++));
+      ~buffer && ((bs = bc % 4 ? bs * 64 + buffer : buffer), bc++ % 4)
+        ? (output += String.fromCharCode(255 & (bs >> ((-2 * bc) & 6))))
+        : 0
+    ) {
+      buffer = this.chars.indexOf(buffer);
+    }
+    return output;
+  }
+}
+
+/**
  * SECURITY ENHANCEMENT: Simple encryption/decryption using built-in JavaScript
  * This provides basic obfuscation for sensitive data storage
  */
@@ -25,13 +72,13 @@ export class SecurityUtils {
       const keyCode = key.charCodeAt(i % key.length);
       encrypted += String.fromCharCode(charCode ^ keyCode);
     }
-    return btoa(encrypted); // Base64 encode for safe storage
+    return Base64Utils.encode(encrypted); // Base64 encode for safe storage
   }
 
   /* SECURITY ENHANCEMENT: Decrypt XOR encrypted data */
   static decrypt(encryptedText: string, key: string): string {
     try {
-      const decoded = atob(encryptedText); // Base64 decode
+      const decoded = Base64Utils.decode(encryptedText); // Base64 decode
       let decrypted = '';
       for (let i = 0; i < decoded.length; i++) {
         const charCode = decoded.charCodeAt(i);
@@ -59,7 +106,7 @@ export class SecurityUtils {
     // Add salt and additional complexity
     const salt = 'APP_SALT_2024';
     const saltedHash = (hash + salt.length).toString(36);
-    return btoa(saltedHash); // Base64 encode the final hash
+    return Base64Utils.encode(saltedHash); // Base64 encode the final hash
   }
 
   /* SECURITY ENHANCEMENT: Secure storage with encryption */
@@ -70,7 +117,10 @@ export class SecurityUtils {
 
       // Store both encrypted data and key hash for validation
       await AsyncStorage.setItem(`secure_${key}`, encryptedValue);
-      await AsyncStorage.setItem(`key_${key}`, btoa(encryptionKey));
+      await AsyncStorage.setItem(
+        `key_${key}`,
+        Base64Utils.encode(encryptionKey),
+      );
     } catch (error) {
       console.error('Secure storage failed:', error);
       throw new Error('Failed to store data securely');
@@ -87,7 +137,7 @@ export class SecurityUtils {
         return null;
       }
 
-      const encryptionKey = atob(keyHash);
+      const encryptionKey = Base64Utils.decode(keyHash);
       return this.decrypt(encryptedValue, encryptionKey);
     } catch (error) {
       console.error('Secure retrieval failed:', error);
